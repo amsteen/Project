@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Management System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        input:read-only { background-color: #f3f4f6; cursor: not-allowed; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(255,255,255,0.7); z-index: 100; align-items: center; justify-content: center; }
+        .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        #authModal { display: none; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+
+    <div id="loader" class="loading-overlay">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+    </div>
+
+    <!-- Auth Modal -->
+    <div id="authModal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full">
+            <h2 id="authTitle" class="text-2xl font-bold mb-6 text-gray-800">Sign In</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Email</label>
+                    <input type="email" id="authEmail" class="w-full border rounded p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="you@example.com">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="authPassword" class="w-full border rounded p-2 mt-1 focus:ring-2 focus:ring-blue-500 outline-none" placeholder="••••••••">
+                </div>
+                <button id="authSubmit" onclick="handleAuth()" class="w-full bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition">Continue</button>
+                <div class="text-center mt-4">
+                    <button id="authToggle" onclick="toggleAuthMode()" class="text-sm text-blue-600 hover:underline">Don't have an account? Sign Up</button>
+                </div>
+                <button onclick="closeAuthModal()" class="w-full mt-2 text-sm text-gray-400 hover:text-gray-600">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-4xl mx-auto p-6">
+        <div class="flex justify-between items-center mb-4">
+            <div id="connectionStatus" class="flex items-center bg-white px-3 py-1 rounded-full shadow-sm border text-xs font-medium text-gray-500">
+                <span class="status-dot bg-gray-400"></span>
+                Checking connection...
+            </div>
+            <div id="authHeaderAction">
+                <button onclick="openAuthModal()" class="text-sm bg-blue-50 text-blue-600 px-4 py-1 rounded-full border border-blue-200 hover:bg-blue-100 transition">Sign In</button>
+            </div>
+        </div>
+
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-gray-800">Project Management System</h1>
+            <p id="userStatus" class="text-sm text-gray-500 mt-2">Connecting to database...</p>
+        </header>
+
+        <!-- Navigation Buttons -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <button onclick="showTab('projects')" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg shadow transition">Projects</button>
+            <button onclick="showTab('reports')" class="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 px-4 rounded-lg shadow transition">Reports</button>
+            <button onclick="backupData()" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-4 rounded-lg shadow transition">Backup</button>
+            <label class="bg-orange-600 hover:bg-orange-700 text-white font-semibold py-3 px-4 rounded-lg shadow transition text-center cursor-pointer">
+                Restore
+                <input type="file" id="restoreFile" class="hidden" onchange="restoreData(event)">
+            </label>
+        </div>
+
+        <!-- Projects Tab -->
+        <div id="projects" class="tab-content active bg-white p-6 rounded-xl shadow-md">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-gray-700">Project Details</h2>
+                <span id="recordIndicator" class="text-sm font-medium text-gray-500">Loading...</span>
+            </div>
+
+            <form id="projectForm" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="space-y-1">
+                        <label class="block text-sm font-medium text-gray-700">Project Name</label>
+                        <input type="text" id="projName" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-sm font-medium text-gray-700">Project Date</label>
+                        <input type="date" id="projDate" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div class="md:col-span-2 space-y-1">
+                        <label class="block text-sm font-medium text-gray-700">Total Contract Value</label>
+                        <input type="number" id="contractValue" class="w-full border rounded p-2 focus:ring-2 focus:ring-blue-500 outline-none" value="0" oninput="calculateFinancials()">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-sm font-medium text-gray-700">Tax Name</label>
+                        <input type="text" id="taxName" class="w-full border rounded p-2" placeholder="VAT/GST">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="block text-sm font-medium text-gray-700">Tax Amount</label>
+                        <input type="number" id="taxValue" class="w-full border rounded p-2" value="0" oninput="calculateFinancials()">
+                    </div>
+                    
+                    <div class="md:col-span-2 grid grid-cols-2 gap-2 mt-4">
+                        <input type="text" id="cost1Name" class="border rounded p-2" placeholder="Cost 1 Name">
+                        <input type="number" id="cost1Value" class="border rounded p-2" value="0" oninput="calculateFinancials()">
+                        <input type="text" id="cost2Name" class="border rounded p-2" placeholder="Cost 2 Name">
+                        <input type="number" id="cost2Value" class="border rounded p-2" value="0" oninput="calculateFinancials()">
+                    </div>
+
+                    <div class="md:col-span-2 border-t pt-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-bold text-blue-600">Net Cut (35%)</label>
+                                <input type="number" id="netCut" class="w-full border rounded p-2 font-bold" readonly>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-emerald-600">Net Profit</label>
+                                <input type="number" id="netProfit" class="w-full border rounded p-2 font-bold" readonly>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex gap-2 pt-6">
+                    <button type="button" onclick="prevRecord()" class="bg-gray-100 px-4 py-2 rounded">Prev</button>
+                    <button type="button" onclick="nextRecord()" class="bg-gray-100 px-4 py-2 rounded">Next</button>
+                    <button type="button" onclick="newRecord()" class="bg-blue-50 text-blue-600 px-4 py-2 rounded border border-blue-100">New</button>
+                    <button type="button" onclick="saveRecord()" class="bg-blue-600 text-white px-8 py-2 rounded font-bold ml-auto">Save to Cloud</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="reports" class="tab-content bg-white p-6 rounded-xl shadow-md">
+            <h2 class="text-xl font-bold mb-4">Financial Reports</h2>
+            <div id="reportList" class="space-y-2"></div>
+        </div>
+
+        <div id="toast" class="fixed bottom-5 right-5 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-2xl opacity-0 transition-opacity pointer-events-none"></div>
+    </div>
+
+    <script>
+        // SUPABASE CONFIGURATION
+        const SUPABASE_URL = 'https://geiulsbcnointxfihvwr.supabase.co'; 
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlaXVsc2Jjbm9pbnR4ZmlodndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2NDE3NDEsImV4cCI6MjA4MjIxNzc0MX0.xfYeMtP4REyt11ZyYKwVqB2JUwHv6eHO3aiICunlZeY';
+        const dbClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let projects = [];
+        let currentIndex = -1;
+        let currentUser = null;
+        let authMode = 'signin';
+
+        function openAuthModal() { document.getElementById('authModal').style.display = 'flex'; }
+        function closeAuthModal() { document.getElementById('authModal').style.display = 'none'; }
+        function toggleAuthMode() {
+            authMode = authMode === 'signin' ? 'signup' : 'signin';
+            document.getElementById('authTitle').innerText = authMode === 'signin' ? 'Sign In' : 'Sign Up';
+            document.getElementById('authToggle').innerText = authMode === 'signin' ? "Don't have an account? Sign Up" : "Already have an account? Sign In";
+        }
+
+        async function handleAuth() {
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+            if (!email || !password) return showToast("Enter email and password");
+            
+            setLoading(true);
+            try {
+                let res = authMode === 'signin' 
+                    ? await dbClient.auth.signInWithPassword({ email, password })
+                    : await dbClient.auth.signUp({ email, password });
+                
+                if (res.error) throw res.error;
+                
+                showToast(authMode === 'signin' ? "Welcome back!" : "Account created!");
+                closeAuthModal();
+                await checkUser();
+            } catch (err) { showToast(err.message); }
+            finally { setLoading(false); }
+        }
+
+        async function checkUser() {
+            const { data: { user } } = await dbClient.auth.getUser();
+            currentUser = user;
+            updateAuthHeader();
+            updateOnlineStatus();
+
+            if (user) {
+                document.getElementById('userStatus').innerText = `Logged in as: ${user.email}`;
+                await fetchProjects();
+            } else {
+                document.getElementById('userStatus').innerText = "Please sign in to save data.";
+                projects = [];
+                newRecord();
+            }
+        }
+
+        function updateAuthHeader() {
+            const container = document.getElementById('authHeaderAction');
+            container.innerHTML = currentUser 
+                ? `<button onclick="signOut()" class="text-sm text-red-500 font-medium hover:underline">Sign Out</button>`
+                : `<button onclick="openAuthModal()" class="text-sm bg-blue-50 text-blue-600 px-4 py-1 rounded-full border border-blue-200 hover:bg-blue-100 transition">Sign In</button>`;
+        }
+
+        async function signOut() {
+            setLoading(true);
+            await dbClient.auth.signOut();
+            window.location.reload();
+        }
+
+        async function updateOnlineStatus() {
+            const statusEl = document.getElementById('connectionStatus');
+            try {
+                // Simple health check query
+                const { error } = await dbClient.from('projects').select('id').limit(1);
+                // If it's a 401 it means we're connected but not authorized (normal for public)
+                // If there's no error or it's just an auth error, we are "Online"
+                statusEl.innerHTML = `<span class="status-dot bg-emerald-500"></span> Online`;
+                statusEl.className = "flex items-center bg-white px-3 py-1 rounded-full shadow-sm border text-xs font-medium text-emerald-600";
+            } catch (err) {
+                statusEl.innerHTML = `<span class="status-dot bg-red-500"></span> Offline`;
+                statusEl.className = "flex items-center bg-white px-3 py-1 rounded-full shadow-sm border text-xs font-medium text-red-500";
+            }
+        }
+
+        async function fetchProjects() {
+            if (!currentUser) return;
+            const { data, error } = await dbClient.from('projects').select('*').order('created_at');
+            if (!error) {
+                projects = data || [];
+                if (projects.length > 0) { currentIndex = 0; loadCurrentRecord(); }
+                else newRecord();
+            }
+        }
+
+        function calculateFinancials() {
+            const val = parseFloat(document.getElementById('contractValue').value) || 0;
+            const tax = parseFloat(document.getElementById('taxValue').value) || 0;
+            const c1 = parseFloat(document.getElementById('cost1Value').value) || 0;
+            const c2 = parseFloat(document.getElementById('cost2Value').value) || 0;
+            
+            const netCut = val * 0.65; // Example logic: 35% reduction
+            const netProfit = val - tax - c1 - c2 - (val * 0.35);
+
+            document.getElementById('netCut').value = netCut.toFixed(2);
+            document.getElementById('netProfit').value = netProfit.toFixed(2);
+        }
+
+        async function saveRecord() {
+            if (!currentUser) return openAuthModal();
+            
+            const data = {
+                name: document.getElementById('projName').value,
+                date: document.getElementById('projDate').value,
+                value: parseFloat(document.getElementById('contractValue').value) || 0,
+                user_id: currentUser.id
+            };
+
+            if (!data.name) return showToast("Project name is required");
+
+            setLoading(true);
+            let res;
+            if (currentIndex === -1) {
+                res = await dbClient.from('projects').insert([data]);
+            } else {
+                res = await dbClient.from('projects').update(data).eq('id', projects[currentIndex].id);
+            }
+            
+            if (res.error) showToast("Error: " + res.error.message);
+            else { showToast("Saved to Cloud!"); await fetchProjects(); }
+            setLoading(false);
+        }
+
+        function loadCurrentRecord() {
+            const p = projects[currentIndex];
+            if (!p) return;
+            document.getElementById('projName').value = p.name || '';
+            document.getElementById('projDate').value = p.date || '';
+            document.getElementById('contractValue').value = p.value || 0;
+            calculateFinancials();
+            document.getElementById('recordIndicator').innerText = `Project ${currentIndex + 1} of ${projects.length}`;
+        }
+
+        function newRecord() {
+            currentIndex = -1;
+            document.getElementById('projectForm').reset();
+            calculateFinancials();
+            document.getElementById('recordIndicator').innerText = "New Project";
+        }
+
+        function prevRecord() { if (currentIndex > 0) { currentIndex--; loadCurrentRecord(); } }
+        function nextRecord() { if (currentIndex < projects.length - 1) { currentIndex++; loadCurrentRecord(); } }
+
+        function showTab(id) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function setLoading(s) { document.getElementById('loader').style.display = s ? 'flex' : 'none'; }
+        
+        function showToast(m) { 
+            const t = document.getElementById('toast');
+            t.innerText = m; t.style.opacity = 1;
+            t.style.pointerEvents = 'auto';
+            setTimeout(() => { t.style.opacity = 0; t.style.pointerEvents = 'none'; }, 3000);
+        }
+
+        function backupData() {
+            const dataStr = JSON.stringify(projects);
+            const blob = new Blob([dataStr], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "projects_backup.json";
+            a.click();
+        }
+
+        window.onload = checkUser;
+    </script>
+</body>
+</html>
